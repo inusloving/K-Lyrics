@@ -37,31 +37,95 @@ jobs:
 
       - name: Fix Kotlin source
         run: |
-          FILE="$(find extracted -name KugouNotificationListener.kt | head -n 1)"
-          if [ -z "$FILE" ]; then
-            echo "Kotlin source not found"
+          FILE="$PROJECT_DIR/app/src/main/java/com/example/klyrics/KugouNotificationListener.kt"
+          if [ ! -f "$FILE" ]; then
+            echo "Kotlin source not found: $FILE"
             exit 1
           fi
-          python3 - "$FILE" <<'PY'
-          import sys
-          p = sys.argv[1]
-          s = open(p).read()
-          s = s.replace("List<MediaSession.Token>", "List<MediaController>")
-          if "import android.media.session.MediaController" not in s:
-              s = s.replace(
-                  "package com.example.klyrics",
-                  "package com.example.klyrics\n\nimport android.media.session.MediaController",
-                  1
-              )
-          open(p, "w").write(s)
-          PY
+          cat > "$FILE" <<'EOF'
+          package com.example.klyrics
+
+          import android.media.session.MediaSessionManager
+          import android.service.notification.NotificationListenerService
+          import android.service.notification.StatusBarNotification
+          import android.content.ComponentName
+          import android.content.Context
+          import android.content.Intent
+          import android.os.Handler
+          import android.os.Looper
+
+          class KugouNotificationListener : NotificationListenerService() {
+              private val handler = Handler(Looper.getMainLooper())
+
+              override fun onListenerConnected() {
+                  super.onListenerConnected()
+                  refreshSessions()
+              }
+
+              override fun onNotificationPosted(sbn: StatusBarNotification?) {
+                  refreshSessions()
+              }
+
+              override fun onNotificationRemoved(sbn: StatusBarNotification?) {
+                  refreshSessions()
+              }
+
+              private fun refreshSessions() {
+                  handler.post {
+                      try {
+                          val manager = getSystemService(
+                              Context.MEDIA_SESSION_SERVICE
+                          ) as MediaSessionManager
+
+                          val sessions = manager.getActiveSessions(
+                              ComponentName(
+                                  this,
+                                  KugouNotificationListener::class.java
+                              )
+                          )
+
+                          val controller = sessions.firstOrNull { c ->
+                              val pkg = c.packageName.lowercase()
+                              pkg.contains("kugou") || pkg.contains("酷狗")
+                          }
+
+                          if (controller != null) {
+                              val metadata = controller.metadata
+                              val title = metadata?.getString(
+                                  android.media.MediaMetadata.METADATA_KEY_TITLE
+                              ).orEmpty()
+                              val artist = metadata?.getString(
+                                  android.media.MediaMetadata.METADATA_KEY_ARTIST
+                              ).orEmpty()
+                              val playing = controller.playbackState?.state ==
+                                  android.media.session.PlaybackState.STATE_PLAYING
+
+                              val intent = Intent(
+                                  this,
+                                  LyricOverlayService::class.java
+                              ).apply {
+                                  action = LyricOverlayService.ACTION_UPDATE
+                                  putExtra(LyricOverlayService.EXTRA_TITLE, title)
+                                  putExtra(LyricOverlayService.EXTRA_ARTIST, artist)
+                                  putExtra(LyricOverlayService.EXTRA_PLAYING, playing)
+                              }
+
+                              if (android.provider.Settings.canDrawOverlays(this)) {
+                                  startService(intent)
+                              }
+                          }
+                      } catch (_: SecurityException) {
+                      } catch (_: Exception) {
+                      }
+                  }
+              }
+          }
+          EOF
 
       - name: Fix JVM target
         run: |
           FILE="$PROJECT_DIR/app/build.gradle.kts"
-          if [ -f "$FILE" ]; then
-            sed -i 's/jvmTarget = "17"/jvmTarget = "1.8"/g' "$FILE"
-          fi
+          sed -i 's/jvmTarget = "17"/jvmTarget = "1.8"/g' "$FILE"
 
       - name: Build APK
         run: |
@@ -72,4 +136,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: K-Lyrics-APK
-          path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/app-debug.apk
+          path: extracted/KLyrics-Android/app/build/outputs/apk/debug/app-debug.apk
