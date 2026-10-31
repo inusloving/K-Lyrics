@@ -40,6 +40,25 @@ jobs:
           fi
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
+      - name: Set Java target to 17
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          p = Path(os.environ["PROJECT_DIR"]) / "app/build.gradle.kts"
+          s = p.read_text()
+          s = s.replace(
+              "    kotlinOptions {",
+              "    compileOptions {\n"
+              "        sourceCompatibility = JavaVersion.VERSION_17\n"
+              "        targetCompatibility = JavaVersion.VERSION_17\n"
+              "    }\n\n"
+              "    kotlinOptions {"
+          )
+          p.write_text(s)
+          print("Java and Kotlin targets aligned to 17")
+          PY
+
       - name: Build APK
         id: build
         run: |
