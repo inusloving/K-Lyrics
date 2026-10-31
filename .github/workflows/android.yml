@@ -24,14 +24,35 @@ jobs:
         with:
           gradle-version: '8.13'
 
-      - name: Extract project
-        run: unzip -q K-Lyrics-Android-starter.zip
+      - name: Find and extract project
+        run: |
+          ZIP_FILE=$(find . -maxdepth 1 -iname '*.zip' -type f | head -n 1)
+          if [ -z "$ZIP_FILE" ]; then
+            echo "ZIP file not found"
+            exit 1
+          fi
+          mkdir extracted
+          unzip -q "$ZIP_FILE" -d extracted
+          PROJECT_DIR=$(find extracted -name settings.gradle.kts -type f -printf '%h\n' | head -n 1)
+          if [ -z "$PROJECT_DIR" ]; then
+            echo "Android project not found in ZIP"
+            exit 1
+          fi
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
       - name: Build APK
-        run: gradle -p K-Lyrics-Android assembleDebug
+        id: build
+        run: |
+          gradle -p "$PROJECT_DIR" assembleDebug
+          APK_PATH=$(find "$PROJECT_DIR" -path '*/outputs/apk/debug/*.apk' -type f | head -n 1)
+          if [ -z "$APK_PATH" ]; then
+            echo "APK not found"
+            exit 1
+          fi
+          echo "apk_path=$APK_PATH" >> "$GITHUB_OUTPUT"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: K-Lyrics-APK
-          path: K-Lyrics-Android/app/build/outputs/apk/debug/app-debug.apk
+          path: ${{ steps.build.outputs.apk_path }}
