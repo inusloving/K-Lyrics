@@ -24,54 +24,52 @@ jobs:
         with:
           gradle-version: '8.13'
 
-      - name: Find and extract project
+      - name: Extract project
         run: |
-          ZIP_FILE=$(find . -maxdepth 1 -iname '*.zip' -type f | head -n 1)
-          if [ -z "$ZIP_FILE" ]; then
-            echo "ZIP file not found"
-            exit 1
-          fi
-          mkdir extracted
-          unzip -q "$ZIP_FILE" -d extracted
-          PROJECT_DIR=$(find extracted -name settings.gradle.kts -type f -printf '%h\n' | head -n 1)
+          mkdir -p extracted
+          unzip -q K-Lyrics-Android-starter.zip -d extracted
+          PROJECT_DIR="$(find extracted -name settings.gradle.kts -printf '%h\n' | head -n 1)"
           if [ -z "$PROJECT_DIR" ]; then
-            echo "Android project not found in ZIP"
+            echo "Project not found"
             exit 1
           fi
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
-      - name: Set Java target to 17
+      - name: Fix Kotlin source
         run: |
-          python3 - <<'PY'
-          import os
-          from pathlib import Path
-          p = Path(os.environ["PROJECT_DIR"]) / "app/build.gradle.kts"
-          s = p.read_text()
-          s = s.replace(
-              "    kotlinOptions {",
-              "    compileOptions {\n"
-              "        sourceCompatibility = JavaVersion.VERSION_17\n"
-              "        targetCompatibility = JavaVersion.VERSION_17\n"
-              "    }\n\n"
-              "    kotlinOptions {"
-          )
-          p.write_text(s)
-          print("Java and Kotlin targets aligned to 17")
-          PY
-
-      - name: Build APK
-        id: build
-        run: |
-          gradle -p "$PROJECT_DIR" assembleDebug
-          APK_PATH=$(find "$PROJECT_DIR" -path '*/outputs/apk/debug/*.apk' -type f | head -n 1)
-          if [ -z "$APK_PATH" ]; then
-            echo "APK not found"
+          FILE="$(find extracted -name KugouNotificationListener.kt | head -n 1)"
+          if [ -z "$FILE" ]; then
+            echo "Kotlin source not found"
             exit 1
           fi
-          echo "apk_path=$APK_PATH" >> "$GITHUB_OUTPUT"
+          python3 - "$FILE" <<'PY'
+          import sys
+          p = sys.argv[1]
+          s = open(p).read()
+          s = s.replace("List<MediaSession.Token>", "List<MediaController>")
+          if "import android.media.session.MediaController" not in s:
+              s = s.replace(
+                  "package com.example.klyrics",
+                  "package com.example.klyrics\n\nimport android.media.session.MediaController",
+                  1
+              )
+          open(p, "w").write(s)
+          PY
+
+      - name: Fix JVM target
+        run: |
+          FILE="$PROJECT_DIR/app/build.gradle.kts"
+          if [ -f "$FILE" ]; then
+            sed -i 's/jvmTarget = "17"/jvmTarget = "1.8"/g' "$FILE"
+          fi
+
+      - name: Build APK
+        run: |
+          cd "$PROJECT_DIR"
+          gradle assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: K-Lyrics-APK
-          path: ${{ steps.build.outputs.apk_path }}
+          path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/app-debug.apk
