@@ -27,7 +27,7 @@ jobs:
       - name: Extract project
         run: |
           mkdir -p extracted
-          unzip -q K-Lyrics-Android-v0.2-dev.zip -d extracted
+          unzip -q K-Lyrics-Android-v0.6.27-dev-source.zip -d extracted
           PROJECT_DIR="$(find extracted -name settings.gradle.kts -printf '%h\n' | head -n 1)"
           if [ -z "$PROJECT_DIR" ]; then
             echo "Project not found"
