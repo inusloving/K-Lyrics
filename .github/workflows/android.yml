@@ -125,7 +125,35 @@ jobs:
       - name: Fix JVM target
         run: |
           FILE="$PROJECT_DIR/app/build.gradle.kts"
-          sed -i 's/jvmTarget = "17"/jvmTarget = "1.8"/g' "$FILE"
+          python3 - "$FILE" <<'PY'
+          import pathlib
+          import re
+          import sys
+
+          p = pathlib.Path(sys.argv[1])
+          s = p.read_text()
+
+          s, count = re.subn(
+              r'(?m)^[ \t]*kotlinOptions[ \t]*\{[^{}]*\}[ \t]*\n?',
+              '',
+              s
+          )
+
+          if count == 0 and 'jvmTarget' in s:
+              raise SystemExit("Old Kotlin target block not found; stop safely")
+
+          s += """
+
+          kotlin {
+              compilerOptions {
+                  jvmTarget.set(
+                      org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_1_8
+                  )
+              }
+          }
+          """
+          p.write_text(s)
+          PY
 
       - name: Build APK
         run: |
@@ -136,4 +164,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: K-Lyrics-APK
-          path: extracted/KLyrics-Android/app/build/outputs/apk/debug/app-debug.apk
+          path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/app-debug.apk
